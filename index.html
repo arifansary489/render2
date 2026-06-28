@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8K Cinematic Motion Canvas</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #020205;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        
+        /* Forces strict 16:9 aspect ratio box on your screen */
+        .video-container {
+            position: relative;
+            width: 100vw;
+            aspect-ratio: 16 / 9;
+            max-height: 100vh;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Overlay UI that scales cleanly */
+        .overlay-text {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            pointer-events: none;
+            color: #ffffff;
+            text-shadow: 0 0 20px rgba(0,0,0,0.6);
+        }
+
+        .overlay-text h1 {
+            font-size: 5vw;
+            font-weight: 300;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            background: linear-gradient(45deg, #fff, #a3b8cc, #fff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: pulseText 4s ease-in-out infinite alternate;
+        }
+
+        @keyframes pulseText {
+            0% { filter: drop-shadow(0 0 2px rgba(255,255,255,0.2)); }
+            100% { filter: drop-shadow(0 0 15px rgba(0,240,255,0.5)); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="video-container">
+        <canvas id="motionCanvas"></canvas>
+        
+        <div class="overlay-text">
+            <h1></h1>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('motionCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // ==========================================
+        // CONFIGURATION: SET YOUR TARGET RESOLUTION
+        // ==========================================
+        const RESOLUTION_PRESETS = {
+            'SCREEN': { w: window.innerWidth, h: window.innerHeight },
+            '4K': { w: 3840, h: 2160 },
+            '8K': { w: 7680, h: 4320 }
+        };
+
+        // CHANGE THIS TO '4K' OR '8K' BEFORE RECORDING/EXPORTING
+        const ACTIVE_PRESET = '4K'; 
+
+        function setupCanvas() {
+            if (ACTIVE_PRESET === 'SCREEN') {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            } else {
+                canvas.width = RESOLUTION_PRESETS[ACTIVE_PRESET].w;
+                canvas.height = RESOLUTION_PRESETS[ACTIVE_PRESET].h;
+            }
+        }
+        setupCanvas();
+
+        // Animation Parameters
+        const particles = [];
+        // Scale particle count with target resolution so it doesn't look empty in 8K
+        const particleCount = ACTIVE_PRESET === '8K' ? 1200 : (ACTIVE_PRESET === '4K' ? 800 : 400); 
+        let hueRotation = 0;
+
+        class Particle {
+            constructor() {
+                this.reset();
+                // Randomize initial placement to prevent spawn-clustering
+                this.z = Math.random() * canvas.width; 
+            }
+
+            reset() {
+                this.x = (Math.random() - 0.5) * canvas.width * 2;
+                this.y = (Math.random() - 0.5) * canvas.height * 2;
+                this.z = canvas.width; // Start in the background depth
+                this.radius = (Math.random() * 2 + 1) * (canvas.width / 1920); // Scale sizes for high-res
+                this.colorValue = hueRotation;
+            }
+
+            update() {
+                // Move particles forward on Z axis (creates the warp travel effect)
+                this.z -= (ACTIVE_PRESET === '8K' ? 16 : (ACTIVE_PRESET === '4K' ? 8 : 4)); 
+                
+                // Spiral twist physics
+                let angle = 0.002 * this.z;
+                let originalX = this.x;
+                this.x = this.x * Math.cos(0.002) - this.y * Math.sin(0.002);
+                this.y = originalX * Math.sin(0.002) + this.y * Math.cos(0.002);
+
+                if (this.z <= 0) {
+                    this.reset();
+                }
+            }
+
+            draw() {
+                // 3D Projection math
+                const k = 600 / this.z;
+                const px = this.x * k + canvas.width / 2;
+                const py = this.y * k + canvas.height / 2;
+
+                if (px >= 0 && px <= canvas.width && py >= 0 && py <= canvas.height) {
+                    const size = this.radius * k;
+                    const alpha = Math.min(1, (canvas.width - this.z) / 300); // Fade in from distance
+
+                    ctx.beginPath();
+                    ctx.arc(px, py, size, 0, Math.PI * 2);
+                    
+                    // Neon color shifting gradients
+                    ctx.fillStyle = `hsla(${(hueRotation + this.z * 0.1) % 360}, 85%, 65%, ${alpha})`;
+                    ctx.shadowBlur = size * 1.5;
+                    ctx.shadowColor = `hsl(${(hueRotation + this.z * 0.1) % 360}, 85%, 65%)`;
+                    
+                    ctx.fill();
+                }
+            }
+        }
+
+        // Initialize Particle Matrix
+        for (let i = 0; i < particleCount; i++) {
+            particles.push(new Particle());
+        }
+
+        // Render Loop
+        function animate() {
+            // Motion Blur Trail Effect: Instead of clearing the screen completely, 
+            // draw a translucent black rectangle over the previous frame.
+            ctx.fillStyle = 'rgba(2, 2, 5, 0.06)';
+            ctx.shadowBlur = 0; // Disable shadow calculation on background clear for performance
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            hueRotation += 0.2;
+
+            // Sort particles by depth so background elements render behind foreground elements
+            particles.sort((a, b) => b.z - a.z);
+
+            // Connect nearby points with cybernetic vector lines
+            ctx.lineWidth = 0.5 * (canvas.width / 1920);
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+                particles[i].draw();
+
+                // Draw constellation lines between reasonably close particles
+                if (i < particles.length - 1 && Math.abs(particles[i].z - particles[i+1].z) < 20) {
+                    const k1 = 600 / particles[i].z;
+                    const x1 = particles[i].x * k1 + canvas.width / 2;
+                    const y1 = particles[i].y * k1 + canvas.height / 2;
+
+                    const k2 = 600 / particles[i+1].z;
+                    const x2 = particles[i+1].x * k2 + canvas.width / 2;
+                    const y2 = particles[i+1].y * k2 + canvas.height / 2;
+
+                    const dist = Math.hypot(x1 - x2, y1 - y2);
+                    // Draw line if projected distance is small
+                    if (dist < (120 * (canvas.width / 1920))) { 
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x2, y2);
+                        ctx.strokeStyle = `rgba(0, 240, 255, ${0.15 * (1 - dist/(120 * (canvas.width / 1920)))})`;
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+        // Handle browser window resize dynamically if preset is set to SCREEN
+        window.addEventListener('resize', () => {
+            if (ACTIVE_PRESET === 'SCREEN') setupCanvas();
+        });
+    </script>
+</body>
+</html>
